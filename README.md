@@ -62,3 +62,14 @@ ironmountain-demo/
 - Docker & Docker Compose
 - OpenAI API key
 - SMTP credentials (for email)
+
+## Email Configuration
+
+The email service is pre-configured for Gmail (yayanaji.yn@gmail.com).
+
+**Quick Setup:**
+1. Enable 2-Step Verification in your Google Account
+2. Generate an App Password: [Google App Passwords](https://myaccount.google.com/apppasswords)
+3. Set `SMTP_PASSWORD` environment variable with the 16-character app password
+
+See [EMAIL_SETUP.md](./EMAIL_SETUP.md) for detailed instructions.
