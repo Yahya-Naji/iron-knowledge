@@ -1,0 +1,5 @@
+chainlit
+openai
+websockets==14.1
+sqlalchemy
+psycopg2-binary
