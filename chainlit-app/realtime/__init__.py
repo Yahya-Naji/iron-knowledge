@@ -101,14 +101,20 @@ class RealtimeAPI(RealtimeEventHandler):
     async def connect(self, model='gpt-4o-realtime-preview-2024-12-17'):
         if self.is_connected():
             raise Exception("Already connected")
-        # Use extra_headers for websockets (list of tuples format)
-        # This works with websockets library versions that support it
+        # Build URL with model parameter
+        url = f"{self.url}?model={model}"
+        
+        # Create connection - websockets 12.0 uses extra_headers as list of tuples
+        # But we need to avoid passing it to create_connection directly
+        # Use the websockets.connect function which handles headers properly
         self.ws = await websockets.connect(
-            f"{self.url}?model={model}",
+            url,
             extra_headers=[
                 ('Authorization', f'Bearer {self.api_key}'),
                 ('OpenAI-Beta', 'realtime=v1')
-            ]
+            ],
+            # Skip passing unsupported kwargs to underlying create_connection
+            create_protocol=None
         )
         self.log(f"Connected to {self.url}")
         asyncio.create_task(self._receive_messages())
@@ -496,29 +502,56 @@ class RealtimeClient(RealtimeEventHandler):
             if not tool_config:
                 raise Exception(f'Tool "{tool["name"]}" has not been added')
             result = await tool_config["handler"](**json_arguments)
-            await self.realtime.send(
-                "conversation.item.create",
-                {
-                    "item": {
-                        "type": "function_call_output",
-                        "call_id": tool["call_id"],
-                        "output": json.dumps(result),
-                    }
-                },
-            )
+            
+            # Check connection before sending response
+            if not self.is_connected():
+                logger.error("Cannot send tool result: websocket connection closed")
+                return
+            
+            try:
+                await self.realtime.send(
+                    "conversation.item.create",
+                    {
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": tool["call_id"],
+                            "output": json.dumps(result),
+                        }
+                    },
+                )
+            except Exception as send_error:
+                logger.error(f"Failed to send tool result: {send_error}")
+                # Try to reconnect or handle gracefully
+                return
         except Exception as e:
             logger.error(f"Tool call error: {json.dumps({'error': str(e)})}")
-            await self.realtime.send(
-                "conversation.item.create",
-                {
-                    "item": {
-                        "type": "function_call_output",
-                        "call_id": tool["call_id"],
-                        "output": json.dumps({"error": str(e)}),
-                    }
-                },
-            )
-        await self.create_response()
+            
+            # Check connection before sending error
+            if not self.is_connected():
+                logger.error("Cannot send tool error: websocket connection closed")
+                return
+            
+            try:
+                await self.realtime.send(
+                    "conversation.item.create",
+                    {
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": tool["call_id"],
+                            "output": json.dumps({"error": str(e)}),
+                        }
+                    },
+                )
+            except Exception as send_error:
+                logger.error(f"Failed to send tool error: {send_error}")
+                return
+        
+        # Only create response if still connected
+        if self.is_connected():
+            try:
+                await self.create_response()
+            except Exception as e:
+                logger.error(f"Failed to create response: {e}")
 
     def is_connected(self):
         return self.realtime.is_connected()

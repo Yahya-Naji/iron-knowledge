@@ -22,6 +22,7 @@ if "CHAINLIT_SECRET_KEY" not in os.environ:
 # ============================================================================
 from typing import Optional
 from uuid import uuid4
+import asyncio
 import chainlit as cl
 from chainlit.logger import logger
 
@@ -358,52 +359,72 @@ async def setup_openai_realtime():
             boxes_requested = inventory['boxes_requested'] if inventory else quantity
             logger.info(f"✅ Updated boxes_requested: {boxes_requested}")
             
-            # Send confirmation emails (always send, regardless of customer_email in DB)
-            status_msg.content = f"📧 Sending confirmation emails..."
+            # Send confirmation emails in background (non-blocking)
+            # This prevents websocket timeout if email sending is slow
+            async def send_emails_background():
+                """Send emails in background without blocking the tool response"""
+                try:
+                    logger.info(f"📤 Step 4: Sending confirmation email (background)...")
+                    # Send customer confirmation email with timeout (will be sent to TO_EMAIL from env)
+                    try:
+                        email_sent = await asyncio.wait_for(
+                            asyncio.to_thread(
+                                send_box_request_confirmation,
+                                customer_email=customer_email,  # This will be overridden by TO_EMAIL
+                                customer_name=customer_name,
+                                account_number=account_number,
+                                quantity=quantity,
+                                address=address,
+                                cancellation_token=cancellation_token
+                            ),
+                            timeout=10.0  # 10 second timeout for email sending
+                        )
+                        
+                        if email_sent:
+                            logger.info(f"✅ Customer confirmation email sent successfully")
+                        else:
+                            logger.warning(f"⚠️ Customer confirmation email failed to send")
+                    except asyncio.TimeoutError:
+                        logger.warning(f"⚠️ Email sending timed out after 10 seconds")
+                    except Exception as email_error:
+                        logger.error(f"❌ Error sending confirmation email: {email_error}")
+                    
+                    # Send internal notification (optional - you can set this email)
+                    internal_email = os.getenv("INTERNAL_NOTIFICATION_EMAIL", "")
+                    if internal_email:
+                        try:
+                            logger.info(f"📤 Step 5: Sending internal notification to {internal_email} (background)...")
+                            internal_sent = await asyncio.wait_for(
+                                asyncio.to_thread(
+                                    send_box_request_notification,
+                                    internal_email=internal_email,
+                                    customer_name=customer_name,
+                                    account_number=account_number,
+                                    quantity=quantity,
+                                    address=address
+                                ),
+                                timeout=10.0  # 10 second timeout
+                            )
+                            if internal_sent:
+                                logger.info(f"✅ Internal notification sent successfully")
+                            else:
+                                logger.warning(f"⚠️ Internal notification failed to send")
+                        except asyncio.TimeoutError:
+                            logger.warning(f"⚠️ Internal notification timed out after 10 seconds")
+                        except Exception as internal_error:
+                            logger.error(f"❌ Error sending internal notification: {internal_error}")
+                except Exception as e:
+                    logger.error(f"❌ Error sending emails in background: {e}", exc_info=True)
+            
+            # Start email sending in background (don't await - let it run async)
+            asyncio.create_task(send_emails_background())
+            
+            # Update status and return response immediately (don't wait for email)
+            to_email = os.getenv("TO_EMAIL", "your email")
+            status_msg.content = f"✅ Perfect! Your {quantity} boxes will be delivered to {address} in 3-5 business days! Confirmation email will be sent to {to_email}."
             await status_msg.update()
             
-            logger.info(f"📤 Step 4: Sending confirmation email...")
-            # Send customer confirmation email (will be sent to TO_EMAIL from env)
-            email_sent = send_box_request_confirmation(
-                customer_email=customer_email,  # This will be overridden by TO_EMAIL
-                customer_name=customer_name,
-                account_number=account_number,
-                quantity=quantity,
-                address=address,
-                cancellation_token=cancellation_token
-            )
-                
-            if email_sent:
-                logger.info(f"✅ Customer confirmation email sent successfully")
-            else:
-                logger.warning(f"⚠️ Customer confirmation email failed to send")
-            
-            # Send internal notification (optional - you can set this email)
-            internal_email = os.getenv("INTERNAL_NOTIFICATION_EMAIL", "")
-            if internal_email:
-                logger.info(f"📤 Step 5: Sending internal notification to {internal_email}...")
-                internal_sent = send_box_request_notification(
-                    internal_email=internal_email,
-                    customer_name=customer_name,
-                    account_number=account_number,
-                    quantity=quantity,
-                    address=address
-                )
-                if internal_sent:
-                    logger.info(f"✅ Internal notification sent successfully")
-                else:
-                    logger.warning(f"⚠️ Internal notification failed to send")
-            
-            if email_sent:
-                to_email = os.getenv("TO_EMAIL", "your email")
-                status_msg.content = f"✅ Perfect! Your {quantity} boxes will be delivered to {address} in 3-5 business days! Confirmation email sent to {to_email}."
-            else:
-                status_msg.content = f"✅ Your {quantity} boxes will be delivered to {address} in 3-5 business days! (Note: Email may not have been sent - check SMTP configuration)"
-            
-            await status_msg.update()
-            
-            email_note = f" I've sent a confirmation email to {customer_email}." if customer_email else ""
-            response = f"Perfect! Your request for {quantity} boxes has been processed. They'll be delivered to your address in 3-5 business days. Your account now shows {boxes_requested} boxes requested for delivery.{email_note}"
+            response = f"Perfect! Your request for {quantity} boxes has been processed. They'll be delivered to your address in 3-5 business days. Your account now shows {boxes_requested} boxes requested for delivery. A confirmation email will be sent to {to_email}."
             
             logger.info(f"📥 Returning response: {len(response)} characters")
             logger.info("=" * 80)
