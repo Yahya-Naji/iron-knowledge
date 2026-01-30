@@ -53,9 +53,18 @@ def send_email(
         logger.error("SMTP credentials not configured. Set SMTP_USER and SMTP_PASSWORD environment variables.")
         return False
     
+    if not SMTP_FROM_EMAIL:
+        logger.error("SMTP_FROM_EMAIL not configured. Set SMTP_FROM_EMAIL environment variable.")
+        return False
+    
     # Always use TO_EMAIL from environment, ignoring the passed email
     actual_to_email = TO_EMAIL
+    if not actual_to_email:
+        logger.error("TO_EMAIL not configured. Set TO_EMAIL environment variable to receive emails.")
+        return False
+    
     logger.info(f"📧 Sending email to {actual_to_email} (original recipient was {to_email})")
+    logger.info(f"📧 SMTP Config: Host={SMTP_HOST}, Port={SMTP_PORT}, User={SMTP_USER[:3]}***")
     
     try:
         # Create message
@@ -83,22 +92,34 @@ def send_email(
         msg.attach(html_part)
         
         # Connect to SMTP server and send
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-            server.starttls()  # Enable encryption
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.send_message(msg, to_addrs=recipients)
+        logger.info(f"🔌 Connecting to SMTP server: {SMTP_HOST}:{SMTP_PORT}")
+        logger.info(f"📧 From: {SMTP_FROM_EMAIL}, To: {actual_to_email}")
         
-        logger.info(f"✅ Email sent successfully to {actual_to_email}")
-        return True
+        try:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+                logger.info(f"✅ Connected to SMTP server")
+                server.starttls()  # Enable encryption
+                logger.info(f"✅ TLS started")
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                logger.info(f"✅ Authenticated with SMTP server")
+                server.send_message(msg, to_addrs=recipients)
+                logger.info(f"✅ Email sent successfully to {actual_to_email}")
+                return True
+        except OSError as e:
+            logger.error(f"❌ Network error connecting to SMTP server: {e}")
+            logger.error(f"   This might be due to Railway blocking outbound SMTP connections.")
+            logger.error(f"   Consider using a service like SendGrid, Mailgun, or AWS SES instead.")
+            return False
         
     except smtplib.SMTPAuthenticationError as e:
         logger.error(f"❌ SMTP Authentication failed: {e}")
+        logger.error(f"   Check your SMTP_USER and SMTP_PASSWORD environment variables.")
         return False
     except smtplib.SMTPException as e:
         logger.error(f"❌ SMTP error: {e}")
         return False
     except Exception as e:
-        logger.error(f"❌ Error sending email: {e}")
+        logger.error(f"❌ Error sending email: {e}", exc_info=True)
         return False
 
 
