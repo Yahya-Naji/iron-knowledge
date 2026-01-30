@@ -1,0 +1,11 @@
+# Ignore files for Railway
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.env
+.chainlit/
+database/
+*.db
+.git/
