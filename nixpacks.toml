@@ -6,7 +6,7 @@ cmds = [
   "python -m venv /opt/venv",
   "source /opt/venv/bin/activate",
   "pip install --upgrade pip setuptools wheel",
-  "pip install -r requirements.txt"
+  "pip install -r chainlit-app/requirements.txt"
 ]
 
 [start]
