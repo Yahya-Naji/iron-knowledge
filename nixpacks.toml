@@ -3,10 +3,11 @@ nixPkgs = ["python311"]
 
 [phases.install]
 cmds = [
-  "python -m ensurepip --upgrade --default-pip",
-  "python -m pip install --upgrade pip setuptools wheel",
-  "python -m pip install -r requirements.txt"
+  "python -m venv /opt/venv",
+  "source /opt/venv/bin/activate",
+  "pip install --upgrade pip setuptools wheel",
+  "pip install -r requirements.txt"
 ]
 
 [start]
-cmd = "cd chainlit-app && python -m chainlit run app.py --host 0.0.0.0 --port $PORT"
+cmd = "cd chainlit-app && source /opt/venv/bin/activate && python -m chainlit run app.py --host 0.0.0.0 --port $PORT"
