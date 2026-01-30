@@ -56,8 +56,21 @@ def _send_email_resend(
         # Initialize Resend
         resend.api_key = RESEND_API_KEY
         
-        # Prepare email
-        from_email = SMTP_FROM_EMAIL or "onboarding@resend.dev"  # Resend default for testing
+        # Resend requires verified domains. Gmail/Yahoo/etc won't work.
+        # Use Resend's test domain for unverified emails
+        if SMTP_FROM_EMAIL and '@' in SMTP_FROM_EMAIL:
+            from_domain = SMTP_FROM_EMAIL.split('@')[1]
+            # Check if it's a common email provider that can't be verified
+            unverified_domains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com']
+            if from_domain.lower() in unverified_domains:
+                # Use Resend's test domain instead
+                from_email = "onboarding@resend.dev"
+                logger.info(f"📧 Using Resend test domain (from_email {SMTP_FROM_EMAIL} domain not verified)")
+            else:
+                from_email = SMTP_FROM_EMAIL
+        else:
+            from_email = "onboarding@resend.dev"  # Resend default for testing
+        
         from_name = SMTP_FROM_NAME or "Iron Mountain"
         
         # Create email params
