@@ -24,7 +24,7 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "")
 SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "Iron Mountain")
 TO_EMAIL = os.getenv("TO_EMAIL", "")  # All emails sent to this address
-CANCEL_BASE_URL = os.getenv("CANCEL_BASE_URL", "http://localhost:8002")
+CANCEL_BASE_URL = os.getenv("CANCEL_BASE_URL", "http://localhost:8002 ")
 
 
 def send_email(
