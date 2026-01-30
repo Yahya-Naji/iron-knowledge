@@ -29,10 +29,11 @@ from chainlit.logger import logger
 try:
     from realtime import RealtimeClient
     REALTIME_AVAILABLE = True
-except ImportError:
+    logger.info("✅ Realtime Client imported successfully - voice features enabled")
+except ImportError as e:
     RealtimeClient = None
     REALTIME_AVAILABLE = False
-    logger.warning("⚠️ Realtime Client not available. Voice features will be disabled.")
+    logger.warning(f"⚠️ Realtime Client not available: {e}. Voice features will be disabled.")
 
 # Local imports
 from db.queries import get_customer_account, get_box_inventory, update_box_request
@@ -505,13 +506,20 @@ async def start():
     await loading_msg.send()
     
     try:
-        rt = await setup_openai_realtime()
-        if rt and REALTIME_AVAILABLE:
-            loading_msg.content = "✅ **Ready!** All systems connected. Press **P** to talk!"
-        elif REALTIME_AVAILABLE:
-            loading_msg.content = "✅ **Ready!** Text chat is available. (Voice requires OPENAI_API_KEY to be set)"
+        # Check if OPENAI_API_KEY is set
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            logger.warning("⚠️ OPENAI_API_KEY not set - voice features disabled")
+            loading_msg.content = "✅ **Ready!** Text chat is available. (Voice requires OPENAI_API_KEY to be set in Railway environment variables)"
+        elif not REALTIME_AVAILABLE:
+            logger.warning("⚠️ Realtime Client not available - voice features disabled")
+            loading_msg.content = "✅ **Ready!** Text chat is available. (Voice requires realtime module)"
         else:
-            loading_msg.content = "✅ **Ready!** Text chat is available. (Voice requires Python 3.10+)"
+            rt = await setup_openai_realtime()
+            if rt:
+                loading_msg.content = "✅ **Ready!** All systems connected. Press **P** to talk!"
+            else:
+                loading_msg.content = "✅ **Ready!** Text chat is available. (Voice initialization failed)"
         await loading_msg.update()
     except Exception as e:
         logger.error(f"Initialization error: {e}", exc_info=True)
