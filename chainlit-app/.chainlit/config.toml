@@ -1,0 +1,22 @@
+[project]
+# Project settings
+name = "Iron Mountain Assistant"
+
+[features]
+# Enable audio/voice features
+[features.audio]
+enabled = true
+# Audio sample rate (Hz) - 24000 is standard for voice
+sample_rate = 24000
+# Enable microphone input
+allow_file_upload = false
+
+[UI]
+# UI configuration
+name = "IronAssist"
+show_readme_as_default = true
+# Show audio input button
+hide_cot = false
+
+[meta]
+generated_by = "1.0.0"

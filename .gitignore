@@ -44,12 +44,11 @@ env/
 *~
 .DS_Store
 
-# Chainlit
-.chainlit/
-**/.chainlit/
-chainlit-app/.chainlit/
-chainlit-app/**/.chainlit/
-*.chainlit
+# Chainlit (but keep config.toml)
+.chainlit/*
+!chainlit-app/.chainlit/config.toml
+**/.chainlit/*
+!**/.chainlit/config.toml
 
 # Database
 *.db
