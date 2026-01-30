@@ -101,14 +101,14 @@ class RealtimeAPI(RealtimeEventHandler):
     async def connect(self, model='gpt-4o-realtime-preview-2024-12-17'):
         if self.is_connected():
             raise Exception("Already connected")
-        # Use additional_headers for websockets (correct parameter name)
-        # websockets library uses additional_headers as a dict
+        # Use extra_headers for websockets (list of tuples format)
+        # This works with websockets library versions that support it
         self.ws = await websockets.connect(
             f"{self.url}?model={model}",
-            additional_headers={
-                'Authorization': f'Bearer {self.api_key}',
-                'OpenAI-Beta': 'realtime=v1'
-            }
+            extra_headers=[
+                ('Authorization', f'Bearer {self.api_key}'),
+                ('OpenAI-Beta', 'realtime=v1')
+            ]
         )
         self.log(f"Connected to {self.url}")
         asyncio.create_task(self._receive_messages())
