@@ -45,6 +45,18 @@ from services.email import send_box_request_confirmation, send_box_request_notif
 os.environ.setdefault("CHAINLIT_DATA_PERSISTENCE", "true")
 logger.info("🗄️  Chainlit data persistence enabled with default file-based storage")
 
+# Initialize database on startup
+try:
+    from db.connection import get_db_connection
+    conn = get_db_connection()
+    if conn:
+        conn.close()
+        logger.info("✅ Database initialized and ready")
+    else:
+        logger.warning("⚠️ Database connection failed")
+except Exception as e:
+    logger.error(f"❌ Database initialization error: {e}")
+
 
 # ============================================================================
 # REST API ROUTES (from api folder)
