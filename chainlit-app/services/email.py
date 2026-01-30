@@ -1,5 +1,5 @@
 """
-Email service for Iron Mountain using SMTP
+Email service for Iron Mountain using Resend API (primary) or SMTP (fallback)
 """
 import os
 from pathlib import Path
@@ -11,12 +11,23 @@ from email.mime.multipart import MIMEMultipart
 from typing import Optional, List
 from chainlit.logger import logger
 
+# Try to import Resend
+try:
+    import resend
+    RESEND_AVAILABLE = True
+except ImportError:
+    RESEND_AVAILABLE = False
+    logger.warning("Resend not available. Install with: pip install resend")
+
 # Load environment variables from .env file
 env_path = Path(__file__).parent.parent.parent / '.env'
 load_dotenv(env_path)
 
-# SMTP Configuration from environment variables
-# Defaults configured for Gmail
+# Email Configuration from environment variables
+# Resend (preferred for Railway/cloud - simpler than SendGrid)
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+
+# SMTP Configuration (fallback for local development)
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "")
@@ -27,7 +38,56 @@ TO_EMAIL = os.getenv("TO_EMAIL", "")  # All emails sent to this address
 CANCEL_BASE_URL = os.getenv("CANCEL_BASE_URL", "http://localhost:8002 ")
 
 
-def send_email(
+def _send_email_resend(
+    to_email: str,
+    subject: str,
+    body_html: str,
+    body_text: Optional[str] = None
+) -> bool:
+    """Send email using Resend API (simple, no domain verification needed)"""
+    if not RESEND_AVAILABLE:
+        return False
+    
+    if not RESEND_API_KEY:
+        logger.warning("RESEND_API_KEY not set, skipping Resend")
+        return False
+    
+    try:
+        # Initialize Resend
+        resend.api_key = RESEND_API_KEY
+        
+        # Prepare email
+        from_email = SMTP_FROM_EMAIL or "onboarding@resend.dev"  # Resend default for testing
+        from_name = SMTP_FROM_NAME or "Iron Mountain"
+        
+        # Create email params
+        params = {
+            "from": f"{from_name} <{from_email}>",
+            "to": [to_email],
+            "subject": subject,
+            "html": body_html,
+        }
+        
+        # Add text version if provided
+        if body_text:
+            params["text"] = body_text
+        
+        # Send email
+        email_response = resend.Emails.send(params)
+        
+        if email_response and hasattr(email_response, 'id'):
+            logger.info(f"✅ Email sent via Resend to {to_email} (id: {email_response.id})")
+            return True
+        else:
+            logger.error(f"❌ Resend error: {email_response}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"❌ Resend error: {e}", exc_info=True)
+        return False
+
+
+def _send_email_smtp(
     to_email: str,
     subject: str,
     body_html: str,
@@ -35,49 +95,27 @@ def send_email(
     cc: Optional[List[str]] = None,
     bcc: Optional[List[str]] = None
 ) -> bool:
-    """
-    Send email using SMTP
-    
-    Args:
-        to_email: Recipient email address (will be overridden by TO_EMAIL from env)
-        subject: Email subject
-        body_html: HTML email body
-        body_text: Plain text email body (optional, will be generated from HTML if not provided)
-        cc: List of CC email addresses (optional)
-        bcc: List of BCC email addresses (optional)
-    
-    Returns:
-        True if email sent successfully, False otherwise
-    """
+    """Send email using SMTP (fallback for local development)"""
     if not SMTP_USER or not SMTP_PASSWORD:
-        logger.error("SMTP credentials not configured. Set SMTP_USER and SMTP_PASSWORD environment variables.")
+        logger.warning("SMTP credentials not configured")
         return False
     
     if not SMTP_FROM_EMAIL:
-        logger.error("SMTP_FROM_EMAIL not configured. Set SMTP_FROM_EMAIL environment variable.")
+        logger.warning("SMTP_FROM_EMAIL not configured")
         return False
-    
-    # Always use TO_EMAIL from environment, ignoring the passed email
-    actual_to_email = TO_EMAIL
-    if not actual_to_email:
-        logger.error("TO_EMAIL not configured. Set TO_EMAIL environment variable to receive emails.")
-        return False
-    
-    logger.info(f"📧 Sending email to {actual_to_email} (original recipient was {to_email})")
-    logger.info(f"📧 SMTP Config: Host={SMTP_HOST}, Port={SMTP_PORT}, User={SMTP_USER[:3]}***")
     
     try:
         # Create message
         msg = MIMEMultipart('alternative')
         msg['From'] = f"{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>"
-        msg['To'] = actual_to_email
+        msg['To'] = to_email
         msg['Subject'] = subject
         
         if cc:
             msg['Cc'] = ', '.join(cc)
         
         # Create recipients list (to + cc + bcc)
-        recipients = [actual_to_email]
+        recipients = [to_email]
         if cc:
             recipients.extend(cc)
         if bcc:
@@ -93,7 +131,6 @@ def send_email(
         
         # Connect to SMTP server and send
         logger.info(f"🔌 Connecting to SMTP server: {SMTP_HOST}:{SMTP_PORT}")
-        logger.info(f"📧 From: {SMTP_FROM_EMAIL}, To: {actual_to_email}")
         
         try:
             with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
@@ -103,24 +140,64 @@ def send_email(
                 server.login(SMTP_USER, SMTP_PASSWORD)
                 logger.info(f"✅ Authenticated with SMTP server")
                 server.send_message(msg, to_addrs=recipients)
-                logger.info(f"✅ Email sent successfully to {actual_to_email}")
+                logger.info(f"✅ Email sent successfully via SMTP to {to_email}")
                 return True
         except OSError as e:
             logger.error(f"❌ Network error connecting to SMTP server: {e}")
             logger.error(f"   This might be due to Railway blocking outbound SMTP connections.")
-            logger.error(f"   Consider using a service like SendGrid, Mailgun, or AWS SES instead.")
             return False
         
     except smtplib.SMTPAuthenticationError as e:
         logger.error(f"❌ SMTP Authentication failed: {e}")
-        logger.error(f"   Check your SMTP_USER and SMTP_PASSWORD environment variables.")
         return False
     except smtplib.SMTPException as e:
         logger.error(f"❌ SMTP error: {e}")
         return False
     except Exception as e:
-        logger.error(f"❌ Error sending email: {e}", exc_info=True)
+        logger.error(f"❌ Error sending email via SMTP: {e}", exc_info=True)
         return False
+
+
+def send_email(
+    to_email: str,
+    subject: str,
+    body_html: str,
+    body_text: Optional[str] = None,
+    cc: Optional[List[str]] = None,
+    bcc: Optional[List[str]] = None
+) -> bool:
+    """
+    Send email using Resend API (preferred) or SMTP (fallback)
+    
+    Args:
+        to_email: Recipient email address (will be overridden by TO_EMAIL from env)
+        subject: Email subject
+        body_html: HTML email body
+        body_text: Plain text email body (optional, will be generated from HTML if not provided)
+        cc: List of CC email addresses (optional, only works with SMTP)
+        bcc: List of BCC email addresses (optional, only works with SMTP)
+    
+    Returns:
+        True if email sent successfully, False otherwise
+    """
+    # Always use TO_EMAIL from environment, ignoring the passed email
+    actual_to_email = TO_EMAIL or to_email
+    if not actual_to_email:
+        logger.error("TO_EMAIL not configured. Set TO_EMAIL environment variable to receive emails.")
+        return False
+    
+    logger.info(f"📧 Sending email to {actual_to_email} (original recipient was {to_email})")
+    
+    # Try Resend first (works on Railway, no domain verification needed)
+    if RESEND_AVAILABLE and RESEND_API_KEY:
+        logger.info("📧 Using Resend API")
+        if _send_email_resend(actual_to_email, subject, body_html, body_text):
+            return True
+        logger.warning("⚠️ Resend failed, falling back to SMTP")
+    
+    # Fallback to SMTP (for local development)
+    logger.info("📧 Using SMTP (fallback)")
+    return _send_email_smtp(actual_to_email, subject, body_html, body_text, cc, bcc)
 
 
 def send_box_request_confirmation(
