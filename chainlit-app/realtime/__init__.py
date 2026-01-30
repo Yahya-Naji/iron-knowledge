@@ -104,17 +104,14 @@ class RealtimeAPI(RealtimeEventHandler):
         # Build URL with model parameter
         url = f"{self.url}?model={model}"
         
-        # Create connection - websockets 12.0 uses extra_headers as list of tuples
-        # But we need to avoid passing it to create_connection directly
-        # Use the websockets.connect function which handles headers properly
+        # Create connection - websockets <14.0 supports extra_headers as list of tuples
+        # We pin websockets to >=12.0,<14.0 in requirements.txt
         self.ws = await websockets.connect(
             url,
             extra_headers=[
                 ('Authorization', f'Bearer {self.api_key}'),
                 ('OpenAI-Beta', 'realtime=v1')
-            ],
-            # Skip passing unsupported kwargs to underlying create_connection
-            create_protocol=None
+            ]
         )
         self.log(f"Connected to {self.url}")
         asyncio.create_task(self._receive_messages())
